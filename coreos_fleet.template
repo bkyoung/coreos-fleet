@@ -1,0 +1,187 @@
+heat_template_version: 2013-05-23
+
+description: >
+  HOT template to deploy three CoreOS servers into an existing neutron tenant network and
+  assign floating IP addresses to each server so they are routable from the public network.
+  Additionally, once the servers are up and floating IPs are assigned, etcd auto-discovery
+  will be performed to establish an etcd cluster across the new servers.
+
+parameters:
+  key_name:
+    type: string
+    description: Name of keypair to assign to servers
+    default: bkyoung
+  image:
+    type: string
+    description: Name of image to use for servers
+    default: coreos
+  flavor:
+    type: string
+    description: Flavor to use for servers
+    default: m1.medium
+  public_net_id:
+    type: string
+    description: >
+      ID of public network for which floating IP addresses will be allocated
+    default: 661a4b56-dec3-43d3-980a-dd763d80834b
+  private_net_id:
+    type: string
+    description: ID of private network into which servers get deployed
+    default: b13d13f7-e2a6-40b2-b265-e1e8d12ad892
+  private_subnet_id:
+    type: string
+    description: ID of private sub network into which servers get deployed
+    default: 3b92fc2f-f053-410b-87f1-824f38ba2d33
+  discovery_url:
+    type: string
+    description: A unique etcd auto-discovery URL obtained from visiting https://discovery.etcd.io/new
+
+resources:
+  coreos1:
+    type: OS::Nova::Server
+    properties:
+      name: coreos1
+      image: { get_param: image }
+      flavor: { get_param: flavor }
+      key_name: { get_param: key_name }
+      networks:
+        - port: { get_resource: coreos1_port }
+      user_data_format: RAW
+      user_data: |
+        #cloud-config
+        coreos:
+          etcd:
+            # generate a new token for each unique cluster from https://discovery.etcd.io/new
+            discovery: { get_param: discovery_url }
+            # multi-region and multi-cloud deployments need to use $public_ipv4
+            addr: $public_ipv4:4001
+            peer-addr: $public_ipv4:7001
+          units:
+            - name: etcd.service
+              command: start
+            - name: fleet.service
+              command: start
+
+  coreos1_port:
+    type: OS::Neutron::Port
+    properties:
+      network_id: { get_param: private_net_id }
+      fixed_ips:
+        - subnet_id: { get_param: private_subnet_id }
+      security_groups: [{ get_resource: server_security_group }]
+
+  coreos1_floating_ip:
+    type: OS::Neutron::FloatingIP
+    properties:
+      floating_network_id: { get_param: public_net_id }
+      port_id: { get_resource: coreos1_port }
+
+  coreos2:
+    type: OS::Nova::Server
+    properties:
+      name: coreos2
+      image: { get_param: image }
+      flavor: { get_param: flavor }
+      key_name: { get_param: key_name }
+      networks:
+        - port: { get_resource: coreos2_port }
+      user_data_format: RAW
+      user_data: |
+        #cloud-config
+        coreos:
+          etcd:
+            # generate a new token for each unique cluster from https://discovery.etcd.io/new
+            discovery: { get_param: discovery_url }
+            # multi-region and multi-cloud deployments need to use $public_ipv4
+            addr: $public_ipv4:4001
+            peer-addr: $public_ipv4:7001
+          units:
+            - name: etcd.service
+              command: start
+            - name: fleet.service
+              command: start
+
+  coreos2_port:
+    type: OS::Neutron::Port
+    properties:
+      network_id: { get_param: private_net_id }
+      fixed_ips:
+        - subnet_id: { get_param: private_subnet_id }
+      security_groups: [{ get_resource: server_security_group }]
+
+  coreos2_floating_ip:
+    type: OS::Neutron::FloatingIP
+    properties:
+      floating_network_id: { get_param: public_net_id }
+      port_id: { get_resource: coreos2_port }
+
+  coreos3:
+    type: OS::Nova::Server
+    properties:
+      name: coreos3
+      image: { get_param: image }
+      flavor: { get_param: flavor }
+      key_name: { get_param: key_name }
+      networks:
+        - port: { get_resource: coreos3_port }
+      user_data_format: RAW
+      user_data: |
+        #cloud-config
+        coreos:
+          etcd:
+            # generate a new token for each unique cluster from https://discovery.etcd.io/new
+            discovery: { get_param: discovery_url }
+            # multi-region and multi-cloud deployments need to use $public_ipv4
+            addr: $public_ipv4:4001
+            peer-addr: $public_ipv4:7001
+          units:
+            - name: etcd.service
+              command: start
+            - name: fleet.service
+              command: start
+
+  coreos3_port:
+    type: OS::Neutron::Port
+    properties:
+      network_id: { get_param: private_net_id }
+      fixed_ips:
+        - subnet_id: { get_param: private_subnet_id }
+      security_groups: [{ get_resource: server_security_group }]
+
+  coreos3_floating_ip:
+    type: OS::Neutron::FloatingIP
+    properties:
+      floating_network_id: { get_param: public_net_id }
+      port_id: { get_resource: coreos3_port }
+
+  server_security_group:
+    type: OS::Neutron::SecurityGroup
+    properties:
+      description: Add security group rules for server
+      name: security-group
+      rules:
+        - remote_ip_prefix: 0.0.0.0/0
+          protocol: tcp
+          port_range_min: 22
+          port_range_max: 22
+        - remote_ip_prefix: 0.0.0.0/0
+          protocol: tcp
+          port_range_min: 4001
+          port_range_max: 4001
+        - remote_ip_prefix: 0.0.0.0/0
+          protocol: tcp
+          port_range_min: 7001
+          port_range_max: 7001
+        - remote_ip_prefix: 0.0.0.0/0
+          protocol: icmp
+
+outputs:
+  coreos1_public_ip:
+    description: Floating IP address of coreos1 in public network
+    value: { get_attr: [ coreos1_floating_ip, floating_ip_address ] }
+  coreos2_public_ip:
+    description: Floating IP address of coreos2 in public network
+    value: { get_attr: [ coreos2_floating_ip, floating_ip_address ] }
+  coreos3_public_ip:
+    description: Floating IP address of coreos3 in public network
+    value: { get_attr: [ coreos3_floating_ip, floating_ip_address ] }
